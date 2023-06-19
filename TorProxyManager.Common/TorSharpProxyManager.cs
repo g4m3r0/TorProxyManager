@@ -5,20 +5,33 @@ using System.Linq;
 using System.Runtime;
 using System.Text;
 using System.Threading.Tasks;
+using System.Xml.Linq;
 
 namespace TorProxyManager.Common
 {
     public class TorSharpProxyManager
     {
-        private readonly string _baseDirectory;
+        private string BaseDirectory { get; set; }
+
+        private int StartingPort = 3500;
+
+        private TorSharpSettings BaseSettings = new();
+
         public Dictionary<Guid, TorSharpProxyHandler> ProxyHandlers { get; set; }
 
         public TorSharpSettings Settings { get; set; }
 
         public TorSharpProxyManager(string baseDirectory)
         {
-            _baseDirectory = baseDirectory;
-            ProxyHandlers = new Dictionary<Guid, TorSharpProxyHandler>();
+            this.BaseDirectory = baseDirectory;
+            this.ProxyHandlers = new Dictionary<Guid, TorSharpProxyHandler>();
+
+            // download Tor
+            using (var httpClient = new HttpClient())
+            {
+                var fetcher = new TorSharpToolFetcher(this.BaseSettings, httpClient);
+                fetcher.FetchAsync();
+            }
         }
 
         /// <summary>
@@ -27,26 +40,30 @@ namespace TorProxyManager.Common
         /// <returns>The GUID identifier of the new proxy</returns>
         public async Task<Guid> CreateNewProxyAsync()
         {
+            var id = Guid.NewGuid();
+
             this.Settings = new TorSharpSettings
             {
-                PrivoxySettings = { Disable = true }
+                PrivoxySettings = { Disable = true },
+                TorSettings = { ControlPassword = "foobar", SocksPort = this.StartingPort, ControlPort = this.StartingPort + 1 },
+                
+                // The extracted tools directory must not be shared.
+                ExtractedToolsDirectory = Path.Combine(this.BaseSettings.ExtractedToolsDirectory, $"tor_{id}"),
+
+                // The zipped tools directory can be shared, as long as the tool fetcher does not run in parallel.
+                ZippedToolsDirectory = this.BaseSettings.ZippedToolsDirectory,
             };
+
+            // Increment port numbers for next proxy
+            this.StartingPort += 2;
 
             this.Settings.WriteToConsole = true; // todo: disable debug output
 
-            // download Tor
-            using (var httpClient = new HttpClient())
-            {
-                var fetcher = new TorSharpToolFetcher(this.Settings, httpClient);
-                await fetcher.FetchAsync();
-            }
-
+            // Start proxy server
             var proxyHandler = new TorSharpProxyHandler(this.Settings);
             await proxyHandler.StartAsync();
 
-            var id = Guid.NewGuid();
             ProxyHandlers[id] = proxyHandler;
-
             return id;
         }
 
