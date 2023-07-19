@@ -26,11 +26,35 @@ namespace TorProxyManager.Common
             this.BaseDirectory = baseDirectory;
             this.ProxyHandlers = new Dictionary<Guid, TorSharpProxyHandler>();
 
+            this.BaseSettings.ZippedToolsDirectory = Path.Combine(this.BaseDirectory, "zipped");
+            this.BaseSettings.ExtractedToolsDirectory = Path.Combine(this.BaseDirectory, "extracted");
+
             // download Tor
             using (var httpClient = new HttpClient())
             {
                 var fetcher = new TorSharpToolFetcher(this.BaseSettings, httpClient);
-                fetcher.FetchAsync();
+                fetcher.FetchAsync().Wait();
+            }
+        }
+
+        ~TorSharpProxyManager()
+        {
+            foreach (var proxyHandler in this.ProxyHandlers.Values)
+            {
+                proxyHandler.Stop();
+            }
+            
+            // Remove extracted tools directory
+            foreach(var id in this.ProxyHandlers.Keys)
+            {
+                try
+                {
+                    Directory.Delete(Path.Combine(this.BaseSettings.ExtractedToolsDirectory, $"tor_{id}"));
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(ex.Message);
+                }
             }
         }
 
